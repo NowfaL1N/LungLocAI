@@ -1,0 +1,117 @@
+{
+  "task": "malignancy",
+  "label": "malignant",
+  "features": [
+    "diameter_mm",
+    "volume_mm3",
+    "major_axis_mm",
+    "minor_axis_mm",
+    "elongation",
+    "flatness",
+    "axis_ratio",
+    "surface_area_mm2",
+    "sphericity",
+    "compactness",
+    "solidity",
+    "mean_hu",
+    "std_hu",
+    "min_hu",
+    "max_hu",
+    "median_hu",
+    "p10_hu",
+    "p90_hu",
+    "skewness_hu",
+    "kurtosis_hu",
+    "entropy_hu",
+    "solid_fraction",
+    "ggo_fraction",
+    "calcified_fraction",
+    "edge_contrast_hu",
+    "edge_gradient",
+    "margin_irregularity",
+    "pleura_dist_mm",
+    "juxtapleural",
+    "rel_z",
+    "rel_x",
+    "rel_y",
+    "is_left"
+  ],
+  "threshold": 0.4866,
+  "rounds": 40,
+  "params": {
+    "objective": "binary:logistic",
+    "eval_metric": "auc",
+    "max_depth": 4,
+    "eta": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "min_child_weight": 2,
+    "reg_lambda": 1.0,
+    "tree_method": "hist",
+    "scale_pos_weight": 1.3166666666666667
+  },
+  "metrics": {
+    "cv": "GroupKFold(5) by seriesuid",
+    "auc": 0.8978,
+    "average_precision": 0.8835,
+    "accuracy": 0.8417,
+    "sensitivity": 0.9667,
+    "specificity": 0.7468,
+    "precision": 0.7436,
+    "f1": 0.8406,
+    "confusion": {
+      "tp": 58,
+      "fp": 20,
+      "tn": 59,
+      "fn": 2
+    }
+  },
+  "trained_on": "synth_table.csv",
+  "n_rows": 139,
+  "n_positive": 60,
+  "n_scans": 30,
+  "demo": true,
+  "created": "2026-11-06T16:29:06",
+  "top_features": [
+    [
+      "major_axis_mm",
+      45.72
+    ],
+    [
+      "diameter_mm",
+      35.73
+    ],
+    [
+      "volume_mm3",
+      31.25
+    ],
+    [
+      "surface_area_mm2",
+      13.32
+    ],
+    [
+      "kurtosis_hu",
+      7.54
+    ],
+    [
+      "skewness_hu",
+      3.39
+    ],
+    [
+      "axis_ratio",
+      3.23
+    ],
+    [
+      "edge_contrast_hu",
+      3.21
+    ],
+    [
+      "elongation",
+      2.72
+    ],
+    [
+      "solid_fraction",
+      1.78
+    ]
+  ]
+}

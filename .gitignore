@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# runtime data (uploaded scans, results, generated samples)
+data/jobs/*
+!data/jobs/.gitkeep
+data/samples/
+data/synth*/
+data/test*/
+data/*.csv
+test_scans/
+evaluation_results.csv
+evaluation_summary.txt
+
+# CT data never belongs in git
+*.mhd
+*.raw
+*.zraw
+*.nii
+*.nii.gz
+*.nrrd
+*.dcm
+*.zip

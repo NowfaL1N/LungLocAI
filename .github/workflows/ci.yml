@@ -1,0 +1,39 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Server imports and models load
+        run: python -c "from app.main import app, MODELS; print('models:', list(MODELS))"
+      - name: Generate synthetic test CTs (chest + full-body)
+        run: |
+          python tools/make_synthetic_ct.py --out /tmp/ci_scans --n 2 --seed 900
+          python tools/make_synthetic_ct.py --out /tmp/ci_scans --n 1 --full-body --seed 901
+      - name: End-to-end accuracy check (detection + XGBoost)
+        run: python tools/evaluate.py --scans /tmp/ci_scans --annotations /tmp/ci_scans/annotations.csv --min-sensitivity 0.8
+      - name: Web API smoke test
+        run: |
+          python tools/make_synthetic_ct.py --out data/samples --n 1 --seed 101
+          uvicorn app.main:app --port 8000 & sleep 6
+          JOB=$(curl -s -X POST "localhost:8000/api/demo?kind=chest" | python -c "import sys,json;print(json.load(sys.stdin)['job_id'])")
+          for i in $(seq 1 60); do
+            STATE=$(curl -s localhost:8000/api/jobs/$JOB | python -c "import sys,json;print(json.load(sys.stdin)['state'])")
+            echo "$STATE"; [ "$STATE" = done ] && break; [ "$STATE" = error ] && exit 1; sleep 5
+          done
+          test "$STATE" = done
+          curl -sf -o /tmp/report.pdf localhost:8000/api/jobs/$JOB/report.pdf
+          curl -sf localhost:8000/api/jobs/$JOB/table.csv | head -3

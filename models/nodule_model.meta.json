@@ -1,0 +1,117 @@
+{
+  "task": "nodule",
+  "label": "is_nodule",
+  "features": [
+    "diameter_mm",
+    "volume_mm3",
+    "major_axis_mm",
+    "minor_axis_mm",
+    "elongation",
+    "flatness",
+    "axis_ratio",
+    "surface_area_mm2",
+    "sphericity",
+    "compactness",
+    "solidity",
+    "mean_hu",
+    "std_hu",
+    "min_hu",
+    "max_hu",
+    "median_hu",
+    "p10_hu",
+    "p90_hu",
+    "skewness_hu",
+    "kurtosis_hu",
+    "entropy_hu",
+    "solid_fraction",
+    "ggo_fraction",
+    "calcified_fraction",
+    "edge_contrast_hu",
+    "edge_gradient",
+    "margin_irregularity",
+    "pleura_dist_mm",
+    "juxtapleural",
+    "rel_z",
+    "rel_x",
+    "rel_y",
+    "is_left"
+  ],
+  "threshold": 0.225,
+  "rounds": 55,
+  "params": {
+    "objective": "binary:logistic",
+    "eval_metric": "auc",
+    "max_depth": 4,
+    "eta": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "min_child_weight": 2,
+    "reg_lambda": 1.0,
+    "tree_method": "hist",
+    "scale_pos_weight": 9.352112676056338
+  },
+  "metrics": {
+    "cv": "GroupKFold(5) by seriesuid",
+    "auc": 0.9913,
+    "average_precision": 0.9739,
+    "accuracy": 0.9721,
+    "sensitivity": 0.9789,
+    "specificity": 0.9714,
+    "precision": 0.7853,
+    "f1": 0.8715,
+    "confusion": {
+      "tp": 139,
+      "fp": 38,
+      "tn": 1290,
+      "fn": 3
+    }
+  },
+  "trained_on": "synth_table.csv",
+  "n_rows": 1470,
+  "n_positive": 142,
+  "n_scans": 30,
+  "demo": true,
+  "created": "2026-11-06T16:28:56",
+  "top_features": [
+    [
+      "minor_axis_mm",
+      307.72
+    ],
+    [
+      "margin_irregularity",
+      193.86
+    ],
+    [
+      "axis_ratio",
+      59.11
+    ],
+    [
+      "p90_hu",
+      29.25
+    ],
+    [
+      "edge_contrast_hu",
+      26.26
+    ],
+    [
+      "diameter_mm",
+      24.21
+    ],
+    [
+      "std_hu",
+      22.75
+    ],
+    [
+      "sphericity",
+      20.91
+    ],
+    [
+      "solid_fraction",
+      19.2
+    ],
+    [
+      "volume_mm3",
+      19.14
+    ]
+  ]
+}

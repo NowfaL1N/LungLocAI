@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LungLocAI — CT Lung Nodule Analysis</title>
+<link rel="stylesheet" href="style.css" />
+<script src="vendor/plotly.min.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" class="logo" aria-hidden="true"><path d="M16 4v10M16 14c-2 0-4 1-5 3l-4 9c-1 2 0 3 2 3 4 0 7-3 7-8M16 14c2 0 4 1 5 3l4 9c1 2 0 3-2 3-4 0-7-3-7-8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="21" cy="21" r="2.4" fill="#ffd166"/></svg>
+    <div><b>LungLocAI</b><span>CT lung nodule detection &amp; cancer risk</span></div>
+  </div>
+  <div id="modelBadge" class="badge">loading model…</div>
+</header>
+
+<main>
+  <!-- ============ UPLOAD ============ -->
+  <section id="uploadView" class="card upload">
+    <div class="upload-left">
+      <h1>Upload a CT scan</h1>
+      <p class="lead">The system converts the scan to a 3-D volume, extracts the lungs (also from full-body CT),
+        finds nodules, turns each one into a row of measurements and runs XGBoost to estimate whether it is a
+        lung-cancer nodule. You get a report a doctor can act on.</p>
+      <label id="drop" class="drop">
+        <input id="fileInput" type="file" multiple />
+        <div class="drop-icon">⬆</div>
+        <div><b>Drop files here</b> or click to choose</div>
+        <small>LUNA16 <code>.mhd</code> + <code>.raw</code> (select both) · DICOM series as <code>.zip</code> · NIfTI <code>.nii / .nii.gz</code> · <code>.nrrd</code></small>
+        <div id="fileList" class="file-list"></div>
+      </label>
+      <p class="privacy">🔒 <b>Please upload anonymised scans only.</b> Do not upload scans that contain patient names
+        or IDs. Uploaded scans and results are deleted automatically after <span id="ttl">2</span> hours.
+        Research prototype, not a medical device.</p>
+      <div class="row gap">
+        <button id="analyzeBtn" class="btn primary" disabled>Analyze scan</button>
+        <span class="muted">or try a sample:</span>
+        <button class="btn ghost" data-demo="chest">Chest CT</button>
+        <button class="btn ghost" data-demo="fullbody">Full-body CT</button>
+      </div>
+    </div>
+    <ol class="pipeline">
+      <li><i>1</i><div><b>3-D volume</b><span>resampled to 1 mm voxels</span></div></li>
+      <li><i>2</i><div><b>Lung extraction</b><span>auto-crops lungs from full-body scans</span></div></li>
+      <li><i>3</i><div><b>Nodule detection</b><span>multi-scale 3-D morphology</span></div></li>
+      <li><i>4</i><div><b>Feature table</b><span>33 measurements per nodule</span></div></li>
+      <li><i>5</i><div><b>XGBoost</b><span>nodule &amp; cancer probability</span></div></li>
+      <li><i>6</i><div><b>Doctor report</b><span>PDF + Lung-RADS-style triage</span></div></li>
+    </ol>
+  </section>
+
+  <!-- ============ PROGRESS ============ -->
+  <section id="progressView" class="card hidden">
+    <h2>Analyzing scan…</h2>
+    <ul id="steps" class="steps"></ul>
+    <p id="progressMsg" class="muted"></p>
+  </section>
+
+  <!-- ============ ERROR ============ -->
+  <section id="errorView" class="card error hidden">
+    <h2>Analysis failed</h2>
+    <p id="errorMsg"></p>
+    <button class="btn" onclick="location.hash='';location.reload()">Try another scan</button>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section id="resultView" class="hidden">
+    <div class="result-head">
+      <div>
+        <h1 id="resTitle">Results</h1>
+        <div id="resSub" class="muted"></div>
+      </div>
+      <div class="row gap">
+        <a id="pdfBtn" class="btn primary" target="_blank">⬇ PDF report</a>
+        <a id="csvBtn" class="btn">⬇ Feature table (CSV)</a>
+        <button class="btn ghost" onclick="location.hash='';location.reload()">New scan</button>
+      </div>
+    </div>
+
+    <div id="demoWarn" class="notice warn hidden">Demo model: trained on synthetic phantoms, not patient data. Train on LungLocAI / LUNA16 to get real predictions.</div>
+    <div id="warnings"></div>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="card impression">
+      <h3>Impression</h3>
+      <ul id="impression"></ul>
+      <p class="fine">Computer-generated decision support from a research prototype. A radiologist must confirm every finding on the original images.</p>
+    </div>
+
+    <div class="viewers">
+      <div class="card viewer">
+        <div class="viewer-head">
+          <h3>CT slices</h3>
+          <div class="tabs" id="axisTabs">
+            <button data-axis="axial" class="on">Axial</button><button data-axis="coronal">Coronal</button><button data-axis="sagittal">Sagittal</button>
+          </div>
+        </div>
+        <div class="slice-wrap"><img id="sliceImg" alt="CT slice" /></div>
+        <div class="row gap slider-row">
+          <input id="sliceSlider" type="range" min="0" max="0" value="0" />
+          <span id="sliceLabel" class="mono"></span>
+        </div>
+        <label class="check"><input type="checkbox" id="lungToggle" /> show lung boundary</label>
+      </div>
+      <div class="card viewer">
+        <div class="viewer-head"><h3>3-D lungs &amp; nodules</h3><span class="muted small">drag to rotate</span></div>
+        <div id="plot3d"></div>
+        <div class="legend"><span class="dot high"></span>High <span class="dot mid"></span>Intermediate <span class="dot low"></span>Low <span class="dot na"></span>Not graded</div>
+      </div>
+    </div>
+
+    <div id="overviewCard" class="card hidden overview">
+      <img id="overviewImg" alt="Full-body overview" />
+      <div>
+        <h3>Full-body scan → lungs extracted</h3>
+        <p id="overviewText" class="muted"></p>
+      </div>
+    </div>
+
+    <h2 class="section">Nodules</h2>
+    <div id="nodules" class="nodules"></div>
+
+    <details class="card" open>
+      <summary><b>Feature table sent to XGBoost</b> <span class="muted" id="tableCount"></span></summary>
+      <div class="table-wrap"><table id="featTable"></table></div>
+    </details>
+
+    <details class="card">
+      <summary><b>Model information</b></summary>
+      <div id="modelInfo"></div>
+    </details>
+  </section>
+</main>
+
+<footer>LungLocAI research prototype — not a medical device. Team 11 · Amrita School of Computing.</footer>
+<script src="app.js"></script>
+</body>
+</html>

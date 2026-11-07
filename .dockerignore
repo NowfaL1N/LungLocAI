@@ -1,0 +1,11 @@
+.git
+.github
+.venv
+**/__pycache__
+data/jobs/*
+data/samples
+data/synth*
+data/test*
+test_scans
+notebooks
+*.zip
