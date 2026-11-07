@@ -1,0 +1,70 @@
+name: Build image & deploy to Azure
+
+# 1) Always: builds the Docker image and publishes it (free) to GitHub Container Registry:
+#       ghcr.io/nowfal1n/lunglocai:latest
+# 2) If the AZURE_CREDENTIALS secret exists: updates the Azure Container App to the new image.
+#    (Create the app once with azure/setup.sh in Azure Cloud Shell - see README.)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/lunglocai
+  AZ_RG: lunglocai-rg
+  AZ_APP: lunglocai
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lower-case image name
+        run: echo "IMAGE=${IMAGE,,}" >> $GITHUB_ENV
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=LungLocAI CT lung nodule detection web app
+            org.opencontainers.image.licenses=MIT
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: image
+    runs-on: ubuntu-latest
+    env:
+      HAS_AZURE: ${{ secrets.AZURE_CREDENTIALS != '' }}
+    steps:
+      - name: Skip (no Azure credentials yet)
+        if: env.HAS_AZURE != 'true'
+        run: echo "AZURE_CREDENTIALS secret not set - image published, Azure app not updated. Run azure/update.sh in Cloud Shell instead."
+      - name: Lower-case image name
+        if: env.HAS_AZURE == 'true'
+        run: echo "IMAGE=${IMAGE,,}" >> $GITHUB_ENV
+      - uses: azure/login@v2
+        if: env.HAS_AZURE == 'true'
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Roll out new image
+        if: env.HAS_AZURE == 'true'
+        run: |
+          az extension add --name containerapp --upgrade -y --only-show-errors
+          az containerapp update -n "$AZ_APP" -g "$AZ_RG" --image "$IMAGE:${{ github.sha }}" --only-show-errors \
+            --query properties.configuration.ingress.fqdn -o tsv

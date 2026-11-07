@@ -267,6 +267,11 @@ def _start_cleanup():
     threading.Thread(target=_cleanup_loop, daemon=True).start()
 
 
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
+
 @app.get("/api/config")
 def config():
     return {"job_ttl_hours": JOB_TTL_HOURS, "max_upload_mb": MAX_UPLOAD_MB}

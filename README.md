@@ -45,25 +45,39 @@ docker build -t lunglocai .
 docker run -p 7860:7860 lunglocai     # http://localhost:7860
 ```
 
-## Put it online for everyone (free, Hugging Face Spaces)
+## Put it online for everyone (Azure for Students, free)
 
-The site needs a Python server, so GitHub Pages can't host it. Hugging Face Spaces runs it for free
-(2 vCPU, 16 GB RAM) and this repo deploys there automatically:
+The site needs a Python server (GitHub Pages can't run it). It runs on **Azure Container Apps**:
+2 vCPU / 4 GB, scales to zero when idle, so normal use stays inside the monthly free grant
+(180,000 vCPU-seconds + 360,000 GiB-seconds); Azure for Students adds $100 credit with no credit card.
 
-1. Create a free account at https://huggingface.co and click **New Space** → name `LungLocAI` →
-   SDK **Docker** → *Blank* → **Create Space**.
-2. Create an access token at https://huggingface.co/settings/tokens with **Write** permission.
-3. In this GitHub repo: **Settings → Secrets and variables → Actions**
-   - **Secrets** tab → *New repository secret*: `HF_TOKEN` = your token
-   - **Variables** tab → *New repository variable*: `HF_SPACE` = `your-hf-username/LungLocAI`
-4. **Actions** tab → *Deploy to Hugging Face Spaces* → **Run workflow**.
+Every push to `main` builds the Docker image with GitHub Actions and publishes it free at
+`ghcr.io/nowfal1n/lunglocai` ([workflow](.github/workflows/azure.yml)).
 
-The site goes live at `https://huggingface.co/spaces/your-hf-username/LungLocAI` after the first build
-(about 5 minutes), and every push to `main` updates it. Uploaded scans and results are deleted
-automatically after 2 hours (`JOB_TTL_HOURS`), and uploads are capped at 1.5 GB (`MAX_UPLOAD_MB`).
+**One-time setup (about 10 minutes):**
+1. Activate **Azure for Students** with your college email: https://azure.microsoft.com/free/students
+2. Open **Azure Cloud Shell**: https://shell.azure.com → choose **Bash** (if asked about storage, pick *No storage account required*).
+3. Paste and press Enter:
+   ```bash
+   curl -sL https://raw.githubusercontent.com/NowfaL1N/LungLocAI/main/azure/setup.sh | bash
+   ```
+   It creates the app and prints the public link, e.g. `https://lunglocai.<random>.centralindia.azurecontainerapps.io`.
+4. *(Optional, enables auto-update on every push.)* If the script printed a JSON block, save it as a GitHub
+   secret named `AZURE_CREDENTIALS` (Settings → Secrets and variables → Actions → New repository secret).
+   Otherwise, update the live site after a push with
+   `curl -sL https://raw.githubusercontent.com/NowfaL1N/LungLocAI/main/azure/update.sh | bash`.
 
-The `Dockerfile` also works on Render, Railway, Google Cloud Run or any Docker host. Give it at least 4 GB RAM,
-because full-body scans need it.
+To remove everything from Azure: `curl -sL https://raw.githubusercontent.com/NowfaL1N/LungLocAI/main/azure/delete.sh | bash`.
+
+Uploaded scans and results are deleted automatically after 2 hours (`JOB_TTL_HOURS`), uploads are capped at
+1.5 GB (`MAX_UPLOAD_MB`), and only one instance runs (`--max-replicas 1`) so each job stays on the
+machine that processes it. After a period without visitors the first request takes ~30–60 s while the
+container starts.
+
+**Other hosts:** the same `Dockerfile` runs on Google Cloud Run, Oracle Cloud, any VPS
+(`docker run -p 7860:7860 ghcr.io/nowfal1n/lunglocai`) or Hugging Face Spaces (Docker Spaces need a
+PRO plan; set the `HF_TOKEN` secret and `HF_SPACE` variable to use [this workflow](.github/workflows/deploy-huggingface.yml)).
+Give it at least 4 GB RAM, because full-body scans need it.
 
 ## Models: from demo to your LungLocAI dataset
 
@@ -76,7 +90,7 @@ python training/build_luna16_table.py --luna-dir /path/LUNA16 --annotations /pat
 python training/train_xgboost.py --table data/lunglocai_table.csv --task nodule
 ```
 In Colab use [`notebooks/LungLocAI_train_on_LUNA16.ipynb`](notebooks/LungLocAI_train_on_LUNA16.ipynb) (resumable).
-Put the resulting `models/*_model.json` + `.meta.json` in `models/` and commit. The live site then updates by itself.
+Put the resulting `models/*_model.json` + `.meta.json` in `models/` and commit; the next image build carries them to the live site.
 
 **LUNA16 has no cancer labels.** Its annotations mark nodule vs. non-nodule. For the lung-cancer model,
 take malignancy ratings from LIDC-IDRI:
@@ -132,7 +146,8 @@ models/         XGBoost models (*.json) + metadata (*.meta.json)
 training/       build LUNA16 table, train XGBoost, LIDC malignancy export
 tools/          synthetic CT generator, accuracy evaluation
 notebooks/      Colab notebook for training on LUNA16
-Dockerfile      container for Hugging Face Spaces / any Docker host
+Dockerfile      container image (Azure Container Apps / any Docker host)
+azure/          one-command Azure setup, update and delete scripts
 ```
 
 ## Known limitations
