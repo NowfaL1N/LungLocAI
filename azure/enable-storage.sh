@@ -18,8 +18,22 @@ printf "Paste the GitHub token (starts with github_pat_), then press Enter: "
 read -rs TOKEN < /dev/tty; echo
 [ -n "$TOKEN" ] || { echo "No token entered."; exit 1; }
 
+TOKEN=$(printf '%s' "$TOKEN" | tr -d '[:space:]')
+echo "Received a token of ${#TOKEN} characters starting with '${TOKEN:0:11}'."
+UCODE=$(curl -s -o /tmp/user.json -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "https://api.github.com/user")
+if [ "$UCODE" != "200" ]; then
+  echo "GitHub rejected this token (HTTP $UCODE): it was not pasted completely, or it expired/was deleted."
+  echo "Tip: in Cloud Shell paste with right-click -> Paste or Ctrl+Shift+V (nothing is shown while typing)."; exit 1
+fi
+echo "Token belongs to GitHub user: $(python3 -c "import json;print(json.load(open('/tmp/user.json'))['login'])")"
 CODE=$(curl -s -o /tmp/repo.json -w "%{http_code}" -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$DATA_REPO")
-if [ "$CODE" != "200" ]; then echo "The token cannot open $DATA_REPO (HTTP $CODE). Check the token's repository access."; exit 1; fi
+if [ "$CODE" != "200" ]; then
+  echo "The token is valid but has NO access to $DATA_REPO (HTTP $CODE)."
+  echo "Edit it at https://github.com/settings/personal-access-tokens : Repository access -> Only select repositories -> $DATA_REPO,"
+  echo "and Repository permissions -> Contents -> Read and write. Then run this script again."; exit 1
+fi
+PERM=$(python3 -c "import json;print(json.load(open('/tmp/repo.json')).get('permissions',{}).get('push'))")
+[ "$PERM" = "True" ] || echo "Warning: the token may be read-only - set Contents -> Read and write."
 if ! grep -q '"private": *true' /tmp/repo.json; then echo "$DATA_REPO is PUBLIC. Make it private first (Settings -> Danger Zone)."; exit 1; fi
 echo "Token OK - repository is private."
 
