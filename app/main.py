@@ -15,7 +15,11 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, File, HTTPException, UploadFile
+import hashlib
+import hmac
+import io
+
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from skimage import measure
@@ -25,6 +29,8 @@ from .pipeline.ct_io import load_ct
 from .pipeline.features import FEATURE_COLUMNS
 from .pipeline.scan_to_table import scan_to_table
 from . import report
+from . import retrain as retrainer
+from .storage import anon_id, get_store
 
 ROOT = Path(__file__).resolve().parents[1]
 JOBS = ROOT / "data" / "jobs"
@@ -37,7 +43,13 @@ CACHE: dict[str, dict] = {}          # in-memory arrays for the viewer (last few
 RUN_LOCK = threading.Semaphore(1)    # one CT at a time (memory)
 JOB_TTL_HOURS = float(os.environ.get("JOB_TTL_HOURS", "2"))      # uploaded scans + results are deleted after this
 MAX_UPLOAD_MB = float(os.environ.get("MAX_UPLOAD_MB", "1500"))
-MODELS = classifier.load_models()
+STORE = get_store()                  # private research store (None = storage disabled)
+LIVE_MODELS = ROOT / "data" / "models_live"   # retrained models pulled from the store
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+MODELS = classifier.load_models(LIVE_MODELS)
+STORE_STATUS = {"configured": STORE is not None, "backend": getattr(STORE, "name", None), "error": None,
+                "saved": 0, "failed": 0}
+RETRAIN = {"state": "idle", "log": [], "report": None}
 
 STEPS = [("load", "Reading CT"), ("lungs", "3-D volume + lung extraction"), ("candidates", "Finding nodules"),
          ("features", "Building feature table"), ("xgboost", "XGBoost classification"), ("report", "Writing report")]
@@ -183,11 +195,54 @@ def run_job(job: str):
             }
             (d / "result.json").write_text(json.dumps(result))
             report.build_pdf(d / "report.pdf", result, closeups, ov)
+            consent = (d / "consent").exists()
+            result["consent"] = consent and STORE is not None
+            (d / "result.json").write_text(json.dumps(result))
             _set(job, state="done", step="done", message="Finished", result=result)
             shutil.rmtree(d / "upload", ignore_errors=True)
+            if consent and STORE is not None:
+                threading.Thread(target=_store_case, args=(job, result, closeups, ov), daemon=True).start()
         except Exception as e:
             traceback.print_exc()
             _set(job, state="error", message=str(e) or e.__class__.__name__)
+
+
+def _store_case(job, result, closeups, overview):
+    """Save an anonymised copy of the findings in the private store (only with the uploader's consent)."""
+    d = JOBS / job
+    case_id = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
+    try:
+        if hasattr(STORE, "check") and STORE.check().get("private") is False:
+            raise RuntimeError(f"refusing to store: {STORE.repo} is PUBLIC - make it private first")
+        r = json.loads(json.dumps(result))
+        uid = r["scan"].get("series_uid", "")
+        r["scan"] = {k: v for k, v in r["scan"].items() if k not in ("source_file", "series_uid", "origin")}
+        r["scan"].update(source_file="anonymised upload", series_uid=anon_id(uid))
+        r["job_id"] = case_id
+        r.pop("consent", None)
+        pdf = d / "report_anon.pdf"
+        report.build_pdf(pdf, r, closeups, overview)
+        table = pd.read_csv(d / "table.csv")
+        table["seriesuid"] = case_id
+        files = {"result.json": json.dumps(r, indent=1).encode(), "report.pdf": pdf.read_bytes(),
+                 "table.csv": table.to_csv(index=False).encode()}
+        for cid, png in closeups.items():
+            files[f"nodule_{cid}.png"] = png
+        nods = r["nodules"]
+        ps = [n["p_malignant"] for n in nods if n.get("p_malignant") is not None]
+        STORE.save_case(case_id, files, {
+            "case_id": case_id, "stored_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "scan_type": "full-body" if r["lungs"]["full_body"] else "chest",
+            "n_candidates": r["n_candidates"], "n_nodules": len(nods),
+            "n_suspicious": sum(1 for n in nods if str(n.get("ai_label", "")).startswith("Suspicious")),
+            "max_p_malignant": round(max(ps), 3) if ps else "", "slice_mm": r["scan"].get("spacing_mm", ["", "", ""])[2],
+            "model": "demo" if r["models"].get("demo") else "trained"})
+        STORE_STATUS["saved"] += 1
+        STATE.get(job, {})["stored"] = case_id
+    except Exception as e:
+        traceback.print_exc()
+        STORE_STATUS["failed"] += 1
+        STORE_STATUS["error"] = f"{time.strftime('%H:%M')} {e}"[:300]
 
 
 def _mesh_scaled(lung, image, f=3):
@@ -229,10 +284,12 @@ def _result(job):
 
 # ------------------------------------------------------------------ API
 @app.post("/api/analyze")
-async def analyze(files: list[UploadFile] = File(...)):
+async def analyze(files: list[UploadFile] = File(...), consent: str = Form("0")):
     job = uuid.uuid4().hex[:16]
     up = JOBS / job / "upload"
     up.mkdir(parents=True)
+    if consent in ("1", "true", "on", "yes"):
+        (JOBS / job / "consent").touch()
     total = 0
     for f in files:
         name = Path(f.filename or "upload.bin").name
@@ -274,7 +331,7 @@ def healthz():
 
 @app.get("/api/config")
 def config():
-    return {"job_ttl_hours": JOB_TTL_HOURS, "max_upload_mb": MAX_UPLOAD_MB}
+    return {"job_ttl_hours": JOB_TTL_HOURS, "max_upload_mb": MAX_UPLOAD_MB, "research_storage": STORE is not None}
 
 
 @app.on_event("startup")
@@ -356,11 +413,201 @@ def model_info():
             "feature_columns": FEATURE_COLUMNS}
 
 
-@app.post("/api/model/reload")
-def reload_models():
+# ------------------------------------------------------------------ owner-only admin
+def _admin_token() -> str:
+    return hmac.new(ADMIN_PASSWORD.encode(), b"lunglocai-admin-session", hashlib.sha256).hexdigest()
+
+
+def _require_admin(request: Request, need_store: bool = True):
+    if not ADMIN_PASSWORD:
+        raise HTTPException(503, "Admin is disabled: set the ADMIN_PASSWORD environment variable.")
+    if not hmac.compare_digest(request.cookies.get("llai_admin", ""), _admin_token()):
+        raise HTTPException(401, "Not logged in")
+    if need_store and STORE is None:
+        raise HTTPException(503, "Research storage is not configured (DATA_REPO + DATA_REPO_TOKEN).")
+
+
+@app.post("/api/admin/login")
+async def admin_login(request: Request):
+    body = await request.json()
+    if not ADMIN_PASSWORD or not hmac.compare_digest(str(body.get("password", "")).encode(), ADMIN_PASSWORD.encode()):
+        time.sleep(1.5)                                      # slow down guessing
+        raise HTTPException(401, "Wrong password" if ADMIN_PASSWORD else "Admin is disabled (no ADMIN_PASSWORD set)")
+    resp = JSONResponse({"ok": True})
+    secure = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+    resp.set_cookie("llai_admin", _admin_token(), httponly=True, secure=secure, samesite="strict", max_age=12 * 3600)
+    return resp
+
+
+@app.post("/api/admin/logout")
+def admin_logout():
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie("llai_admin")
+    return resp
+
+
+@app.get("/api/admin/status")
+def admin_status(request: Request):
+    _require_admin(request, need_store=False)
+    info = {"store": dict(STORE_STATUS), "models": {k: m.info() for k, m in MODELS.items()},
+            "retrain": {k: RETRAIN[k] for k in ("state", "report")}}
+    if STORE is None:
+        return info
+    try:
+        if hasattr(STORE, "check"):
+            info["store"].update(STORE.check())
+        info["base_table"] = bool(STORE.list("training/base_table.csv"))
+        info["n_cases"] = len(STORE.cases())
+        labels = STORE.labels()
+        info["n_labels"] = len(labels)
+        info["label_counts"] = {k: sum(1 for l in labels if l["label"] == k)
+                                for k in ("malignant", "benign", "not_nodule", "unsure")}
+    except Exception as e:
+        info["store"]["error"] = str(e)[:300]
+    return info
+
+
+@app.get("/api/admin/cases")
+def admin_cases(request: Request):
+    _require_admin(request)
+    done = {}
+    for l in STORE.labels():
+        done[l["case_id"]] = done.get(l["case_id"], 0) + 1
+    rows = STORE.cases()
+    for r in rows:
+        r["labelled"] = done.get(r["case_id"], 0)
+    return sorted(rows, key=lambda r: r["stored_at"], reverse=True)
+
+
+def _safe_case(case_id: str) -> str:
+    if not case_id.replace("-", "").isalnum() or len(case_id) > 40:
+        raise HTTPException(400, "bad case id")
+    return case_id
+
+
+@app.get("/api/admin/cases/{case_id}")
+def admin_case(case_id: str, request: Request):
+    _require_admin(request)
+    raw = STORE.read(f"cases/{_safe_case(case_id)}/result.json")
+    if not raw:
+        raise HTTPException(404)
+    r = json.loads(raw)
+    lab = {str(l["candidate_id"]): l["label"] for l in STORE.labels() if l["case_id"] == case_id}
+    for n in r.setdefault("nodules", []):
+        n["owner_label"] = lab.get(str(n["candidate_id"]), "")
+    return r
+
+
+@app.get("/api/admin/cases/{case_id}/files/{name}")
+def admin_case_file(case_id: str, name: str, request: Request):
+    _require_admin(request)
+    if "/" in name or ".." in name or "\\" in name:
+        raise HTTPException(400)
+    data = STORE.read(f"cases/{_safe_case(case_id)}/{name}")
+    if data is None:
+        raise HTTPException(404)
+    mt = {"png": "image/png", "pdf": "application/pdf", "csv": "text/csv",
+          "json": "application/json"}.get(name.rsplit(".", 1)[-1], "application/octet-stream")
+    return Response(data, media_type=mt, headers={"Cache-Control": "private, max-age=600"})
+
+
+@app.post("/api/admin/label")
+async def admin_label(request: Request):
+    _require_admin(request)
+    b = await request.json()
+    try:
+        STORE.set_label(_safe_case(str(b["case_id"])), int(b["candidate_id"]), str(b.get("label", "")))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
+@app.post("/api/admin/base-table")
+async def admin_base_table(request: Request, file: UploadFile = File(...)):
+    _require_admin(request)
+    raw = await file.read()
+    try:
+        t = pd.read_csv(io.BytesIO(raw), nrows=200)
+    except Exception:
+        raise HTTPException(400, "Not a readable CSV file")
+    feats = [c for c in FEATURE_COLUMNS if c in t.columns]
+    labels = [c for c in ("is_nodule", "malignant") if c in t.columns]
+    if len(feats) < 5 or not labels:
+        raise HTTPException(400, f"The CSV needs the website's feature columns ({len(feats)} of {len(FEATURE_COLUMNS)} found) "
+                                 "and an 'is_nodule' and/or 'malignant' label column. Build it with training/build_luna16_table.py.")
+    STORE.write("training/base_table.csv", raw, f"Upload base training table ({len(raw) // 1024} KB)")
+    return {"ok": True, "features": len(feats), "labels": labels}
+
+
+def _run_retrain():
     global MODELS
-    MODELS = classifier.load_models()
-    return model_info()
+    RETRAIN.update(state="running", log=[], report=None)
+    try:
+        rep = retrainer.retrain(STORE, MODELS, LIVE_MODELS, log=lambda m: RETRAIN["log"].append(str(m)))
+        RETRAIN["report"] = rep
+        MODELS = classifier.load_models(LIVE_MODELS)
+        RETRAIN["state"] = "done"
+    except Exception as e:
+        traceback.print_exc()
+        RETRAIN["log"].append(f"ERROR: {e}")
+        RETRAIN["state"] = "error"
+
+
+@app.post("/api/admin/retrain")
+def admin_retrain(request: Request):
+    _require_admin(request)
+    if RETRAIN["state"] == "running":
+        raise HTTPException(409, "Retraining is already running")
+    RETRAIN["state"] = "running"
+    threading.Thread(target=_run_retrain, daemon=True).start()
+    return {"started": True}
+
+
+@app.post("/api/admin/selftest")
+def admin_selftest(request: Request):
+    """Write, read back and verify a small file in the private store."""
+    _require_admin(request)
+    t0 = time.time()
+    token = uuid.uuid4().hex
+    info = STORE.check() if hasattr(STORE, "check") else {"backend": STORE.name}
+    if info.get("private") is False:
+        raise HTTPException(400, "The storage repository is PUBLIC. Make it private before storing anything.")
+    STORE.write("_selftest/last.txt", token.encode(), "Storage self-test")
+    ok = (STORE.read("_selftest/last.txt") or b"").decode() == token
+    return {"ok": ok, "seconds": round(time.time() - t0, 2), **info}
+
+
+@app.get("/api/admin/retrain")
+def admin_retrain_status(request: Request):
+    _require_admin(request, need_store=False)
+    return RETRAIN
+
+
+@app.on_event("startup")
+def _pull_models():
+    """Load the latest retrained models from the private store (containers start empty)."""
+    global MODELS
+    if STORE is None:
+        return
+    try:
+        got = False
+        for name in ("nodule_model", "malignancy_model"):
+            a, b = STORE.read(f"models/{name}.json"), STORE.read(f"models/{name}.meta.json")
+            if a and b:
+                LIVE_MODELS.mkdir(parents=True, exist_ok=True)
+                (LIVE_MODELS / f"{name}.json").write_bytes(a)
+                (LIVE_MODELS / f"{name}.meta.json").write_bytes(b)
+                got = True
+        if got:
+            MODELS = classifier.load_models(LIVE_MODELS)
+    except Exception as e:
+        STORE_STATUS["error"] = f"model pull: {e}"[:300]
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_page():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse("/admin.html")
 
 
 app.mount("/", StaticFiles(directory=ROOT / "app" / "static", html=True), name="static")

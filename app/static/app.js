@@ -13,7 +13,10 @@ fetch("api/model").then(r => r.json()).then(m => {
   if (demo) b.classList.add("demo");
 });
 
-fetch("api/config").then(r => r.json()).then(c => { $("#ttl").textContent = c.job_ttl_hours; }).catch(() => {});
+fetch("api/config").then(r => r.json()).then(c => {
+  $("#ttl").textContent = c.job_ttl_hours;
+  if (c.research_storage) $("#consentBox").classList.remove("hidden");
+}).catch(() => {});
 
 /* ---------------- upload ---------------- */
 const drop = $("#drop"), input = $("#fileInput");
@@ -33,6 +36,7 @@ drop.addEventListener("drop", ev => setFiles(ev.dataTransfer.files));
 $("#analyzeBtn").onclick = async () => {
   const fd = new FormData();
   files.forEach(f => fd.append("files", f, f.name));
+  fd.append("consent", $("#consent").checked ? "1" : "0");
   show("progressView"); renderSteps({ step: "load", steps: STEPS_DEFAULT, message: "Uploading…" });
   const r = await fetch("api/analyze", { method: "POST", body: fd });
   if (!r.ok) { let m = "Upload failed (" + r.status + ")"; try { m = (await r.json()).detail || m; } catch (e) {} return fail(m); }
@@ -76,7 +80,8 @@ function showResult(r) {
   $("#pdfBtn").href = `api/jobs/${r.job_id}/report.pdf`;
   $("#csvBtn").href = `api/jobs/${r.job_id}/table.csv`;
   $("#demoWarn").classList.toggle("hidden", !r.models.demo);
-  $("#warnings").innerHTML = r.warnings.map(w => `<div class="notice info">${w}</div>`).join("");
+  $("#warnings").innerHTML = r.warnings.map(w => `<div class="notice info">${w}</div>`).join("") +
+    (r.consent ? `<div class="notice info">Thank you: the anonymised findings of this scan were shared privately with the LungLocAI researchers.</div>` : "");
 
   const sus = nods.filter(n => (n.ai_label || "").startsWith("Suspicious")).length;
   const maxP = hasP ? Math.max(...nods.map(n => n.p_malignant || 0)) : null;

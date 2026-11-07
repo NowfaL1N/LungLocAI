@@ -31,9 +31,12 @@
         <small>LUNA16 <code>.mhd</code> + <code>.raw</code> (select both) · DICOM series as <code>.zip</code> · NIfTI <code>.nii / .nii.gz</code> · <code>.nrrd</code></small>
         <div id="fileList" class="file-list"></div>
       </label>
-      <p class="privacy">🔒 <b>Please upload anonymised scans only.</b> Do not upload scans that contain patient names
-        or IDs. Uploaded scans and results are deleted automatically after <span id="ttl">2</span> hours.
-        Research prototype, not a medical device.</p>
+      <p class="privacy">🔒 <b>Please upload anonymised scans only</b> (no patient names or IDs). Your scan and results are
+        deleted automatically after <span id="ttl">2</span> hours. Research prototype, not a medical device.</p>
+      <label id="consentBox" class="consent hidden"><input type="checkbox" id="consent" />
+        <span><b>Optional:</b> I agree that the <b>anonymised findings</b> of this scan (nodule measurements, AI results,
+        the report and small nodule images, but <u>not</u> the CT scan itself or any name or ID) may be kept privately by the
+        LungLocAI researchers to improve the model.</span></label>
       <div class="row gap">
         <button id="analyzeBtn" class="btn primary" disabled>Analyze scan</button>
         <span class="muted">or try a sample:</span>

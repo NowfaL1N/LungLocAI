@@ -11,6 +11,22 @@ a report a doctor can act on.**
 
 <p align="center"><img src="docs/results.png" alt="LungLocAI results page" width="900"></p>
 
+## Dataset: LungLocAI-3D
+
+The project's dataset is published on IEEE DataPort:
+
+> **LungLocAI-3D: Isotropic 3D Lung Nodule Candidate Patches and Engineered Features Derived from LUNA16**
+> S. K. Thangavel, Nowfal N, Sree Hari R, Naveen Kumar M, IEEE DataPort, 2026.
+> DOI: [10.21227/0x9w-1y93](https://doi.org/10.21227/0x9w-1y93) · License: CC BY 4.0
+
+All 888 LUNA16 scans · 54,837 labelled candidates (1,557 nodules, 53,280 non-nodules) · 32×32×32 mm patches at
+1 mm isotropic spacing (HU) · 539 engineered features per candidate · patient-level train/val/test split
+(subsets 0–7 / 8 / 9) · XGBoost baseline test AUC 0.9725.
+The data (~3 GB) is hosted on IEEE DataPort, not in this repository, because GitHub limits files to 100 MB.
+
+If you use it, please also cite LUNA16 (Setio et al., *Medical Image Analysis* 42, 2017, doi:10.1016/j.media.2017.06.015)
+and LIDC-IDRI (Armato et al., *Medical Physics* 38(2), 2011, doi:10.1118/1.3528204; TCIA doi:10.7937/K9/TCIA.2015.LO9QL9SX).
+
 ## What it does
 
 | Step | What happens | Code |
@@ -80,6 +96,27 @@ container starts.
 PRO plan; set the `HF_TOKEN` secret and `HF_SPACE` variable to use [this workflow](.github/workflows/deploy-huggingface.yml)).
 Give it at least 4 GB RAM, because full-body scans need it.
 
+## Research storage and owner-only admin (optional)
+
+When enabled, the upload page shows an **opt-in** checkbox. Only if the uploader ticks it, an **anonymised** copy of the
+findings is saved to a **private** GitHub repository (default `NowfaL1N/LungLocAI-data`): the nodule feature table, AI
+results, the PDF report and small nodule close-ups. The CT scan itself is never stored, and file names and DICOM UIDs are
+removed. The app refuses to store anything if that repository is public.
+
+The owner logs in at **`/admin`** to browse stored cases, open their reports, and label each nodule as *malignant*,
+*benign*, *not a nodule* or *unsure*. **Retrain** then trains XGBoost on the base table plus the confirmed labels. The new
+model goes live only if it scores at least as well as the current one on held-out scans, and every model is versioned
+in the private repo.
+
+Enable it (one time):
+1. Create a **private** repo `LungLocAI-data` (with a README).
+2. Create a fine-grained token at https://github.com/settings/personal-access-tokens/new: *Only select repositories* →
+   `LungLocAI-data`, permission **Contents: Read and write**.
+3. In Azure Cloud Shell: `curl -sL https://raw.githubusercontent.com/NowfaL1N/LungLocAI/main/azure/enable-storage.sh | bash`
+   (asks for the token and an admin password; both are stored as Azure secrets).
+
+Locally: `DATA_DIR=./research_data ADMIN_PASSWORD=... uvicorn app.main:app` uses a folder instead of GitHub.
+
 ## Models: from demo to your LungLocAI dataset
 
 The repo ships **DEMO models trained on synthetic phantoms**. The site and PDF say so in orange.
@@ -148,7 +185,8 @@ training/       build LUNA16 table, train XGBoost, LIDC malignancy export
 tools/          synthetic CT generator, accuracy evaluation
 notebooks/      Colab notebook for training on LUNA16
 Dockerfile      container image (Azure Container Apps / any Docker host)
-azure/          one-command Azure setup, update and delete scripts
+azure/          one-command Azure setup, update, storage and delete scripts
+app/storage.py  private research storage (GitHub repo or folder); app/retrain.py: label-based retraining
 ```
 
 ## Known limitations

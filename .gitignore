@@ -25,3 +25,7 @@ evaluation_summary.txt
 *.nrrd
 *.dcm
 *.zip
+
+# retrained models pulled at runtime, local research store
+data/models_live/
+research_data/

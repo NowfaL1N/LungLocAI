@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>LungLocAI — Researcher admin</title>
+<link rel="stylesheet" href="style.css" />
+<style>
+  .admin-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:18px}
+  .pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:700;background:#eef2f7}
+  .pill.ok{background:#dcf2ef;color:#14635a}.pill.bad{background:#fde4e6;color:#a4161a}.pill.warn{background:#fff4e0;color:#7a4b00}
+  table.cases td,table.cases th{text-align:left}
+  table.cases tr{cursor:pointer} table.cases tbody tr:hover{background:#f3f7ff}
+  .labels{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .labels button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 12px;font-weight:650;cursor:pointer;font-size:13px}
+  .labels button.on.malignant{background:#e63946;color:#fff;border-color:#e63946}
+  .labels button.on.benign{background:#2a9d8f;color:#fff;border-color:#2a9d8f}
+  .labels button.on.not_nodule{background:#5d6b7e;color:#fff;border-color:#5d6b7e}
+  .labels button.on.unsure{background:#f4a261;color:#fff;border-color:#f4a261}
+  pre.log{background:#0b0f16;color:#cfe3ff;border-radius:10px;padding:12px;max-height:260px;overflow:auto;font-size:12px;white-space:pre-wrap}
+  .login{max-width:380px;margin:60px auto}
+  .login input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin:10px 0}
+  .muted-row td{color:#9aa6b5}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><svg viewBox="0 0 32 32" class="logo" aria-hidden="true"><path d="M16 4v10M16 14c-2 0-4 1-5 3l-4 9c-1 2 0 3 2 3 4 0 7-3 7-8M16 14c2 0 4 1 5 3l4 9c1 2 0 3-2 3-4 0-7-3-7-8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+    <div><b>LungLocAI · Researcher admin</b><span>private — stored cases, labelling, retraining</span></div></div>
+  <div class="row gap"><a class="badge" href="./" style="color:#fff;text-decoration:none">← public site</a>
+    <button id="logout" class="badge hidden" style="border:0;color:#fff;cursor:pointer">Log out</button></div>
+</header>
+<main>
+  <section id="loginView" class="card login hidden">
+    <h2>Researcher login</h2>
+    <p class="muted small">Only the project owner can see stored cases.</p>
+    <input id="pw" type="password" placeholder="Admin password" autocomplete="current-password" />
+    <button id="loginBtn" class="btn primary">Log in</button>
+    <p id="loginErr" class="small" style="color:#a4161a"></p>
+  </section>
+
+  <section id="dash" class="hidden">
+    <div class="admin-grid" id="stats"></div>
+    <div id="storeErr"></div>
+    <div class="row gap" style="margin:-6px 0 14px"><button id="selftestBtn" class="btn">Test storage</button><span id="selftestMsg" class="small"></span></div>
+
+    <div class="card">
+      <h3>Stored cases <span class="muted small">(only scans whose uploader ticked the consent box)</span></h3>
+      <div class="table-wrap" style="max-height:340px"><table class="cases" id="cases"></table></div>
+    </div>
+
+    <div class="card hidden" id="caseCard">
+      <div class="viewer-head"><h3 id="caseTitle"></h3>
+        <div class="row gap"><a id="casePdf" class="btn" target="_blank">PDF report</a><a id="caseCsv" class="btn">Feature table</a></div></div>
+      <p class="muted small">Confirm each nodule from the images and the original scan. Only <b>Malignant</b>, <b>Benign</b> and
+        <b>Not a nodule</b> are used for retraining; <b>Unsure</b> is ignored.</p>
+      <div id="caseNodules" class="nodules"></div>
+    </div>
+
+    <div class="card">
+      <h3>Retrain XGBoost</h3>
+      <p class="small">Trains on the base table (your LungLocAI / LUNA16 feature table) <b>plus</b> every nodule you have labelled.
+        A new model is deployed only if it scores at least as well as the current one on scans held out from training.</p>
+      <div class="row gap"><button id="retrainBtn" class="btn primary">Retrain now</button><span id="retrainState" class="muted small"></span></div>
+      <div id="retrainReport"></div>
+      <pre class="log hidden" id="retrainLog"></pre>
+    </div>
+
+    <div class="card">
+      <h3>Base training table</h3>
+      <p class="small">Upload the CSV produced by <code>training/build_luna16_table.py</code> (your LungLocAI dataset). It is stored privately and used by every retrain.</p>
+      <div class="row gap"><input type="file" id="baseFile" accept=".csv" /><button id="baseBtn" class="btn">Upload table</button><span id="baseMsg" class="small"></span></div>
+    </div>
+  </section>
+</main>
+<script src="admin.js"></script>
+</body>
+</html>

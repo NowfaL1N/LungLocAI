@@ -112,3 +112,5 @@ tr.rejected td{color:#9aa6b5}
 footer{text-align:center;color:var(--muted);font-size:12.5px;padding:24px}
 @media (max-width:900px){.upload,.viewers{grid-template-columns:1fr}.nodule{grid-template-columns:1fr}.kv{grid-template-columns:repeat(2,1fr)}}
 .privacy{font-size:13px;color:#5d4a00;background:#fff8e1;border:1px solid #f3e1a6;border-radius:10px;padding:9px 12px;margin:0 0 14px}
+.consent{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:#33445c;background:#f3f7ff;border:1px solid #d5e2fb;border-radius:10px;padding:10px 12px;margin:-4px 0 14px;cursor:pointer}
+.consent input{margin-top:3px}

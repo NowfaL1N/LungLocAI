@@ -37,3 +37,13 @@ jobs:
           test "$STATE" = done
           curl -sf -o /tmp/report.pdf localhost:8000/api/jobs/$JOB/report.pdf
           curl -sf localhost:8000/api/jobs/$JOB/table.csv | head -3
+      - name: Research storage + admin smoke test (local folder backend)
+        run: |
+          pkill -f "uvicorn app.main" || true; sleep 1
+          DATA_DIR=/tmp/rs ADMIN_PASSWORD=ci-password-123 uvicorn app.main:app --port 8001 & sleep 6
+          JOB=$(curl -s -X POST localhost:8001/api/analyze -F "files=@$(ls /tmp/ci_scans/*.mhd | head -1)" -F "files=@$(ls /tmp/ci_scans/*.raw | head -1)" -F consent=1 | python -c "import sys,json;print(json.load(sys.stdin)['job_id'])")
+          for i in $(seq 1 60); do S=$(curl -s localhost:8001/api/jobs/$JOB | python -c "import sys,json;print(json.load(sys.stdin)['state'])"); [ "$S" = done ] && break; sleep 5; done
+          sleep 5; test -f /tmp/rs/index.csv && ls /tmp/rs/cases/*/report.pdf
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8001/api/admin/cases)" = 401
+          curl -s -c /tmp/c -X POST localhost:8001/api/admin/login -H 'Content-Type: application/json' -d '{"password":"ci-password-123"}'
+          curl -sf -b /tmp/c -X POST localhost:8001/api/admin/selftest

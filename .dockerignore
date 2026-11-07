@@ -9,3 +9,4 @@ data/test*
 test_scans
 notebooks
 *.zip
+data/models_live

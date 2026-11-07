@@ -23,11 +23,11 @@ MODEL_DIR = Path(__file__).resolve().parents[2] / "models"
 
 
 class Model:
-    def __init__(self, name: str):
+    def __init__(self, name: str, model_dir: Path = MODEL_DIR):
         self.name = name
-        self.meta = json.loads((MODEL_DIR / f"{name}.meta.json").read_text())
+        self.meta = json.loads((model_dir / f"{name}.meta.json").read_text())
         self.booster = xgb.Booster()
-        self.booster.load_model(str(MODEL_DIR / f"{name}.json"))
+        self.booster.load_model(str(model_dir / f"{name}.json"))
         self.features = self.meta["features"]
         self.threshold = float(self.meta.get("threshold", 0.5))
 
@@ -43,11 +43,15 @@ class Model:
                                        "metrics", "demo", "created", "top_features")}
 
 
-def load_models():
+def load_models(*dirs: Path):
+    """Load each model from the first directory that has it (e.g. retrained models first, bundled last)."""
     models = {}
     for name in ("nodule_model", "malignancy_model"):
-        if (MODEL_DIR / f"{name}.json").exists() and (MODEL_DIR / f"{name}.meta.json").exists():
-            models[name] = Model(name)
+        for d in [*dirs, MODEL_DIR]:
+            d = Path(d)
+            if (d / f"{name}.json").exists() and (d / f"{name}.meta.json").exists():
+                models[name] = Model(name, d)
+                break
     return models
 
 
