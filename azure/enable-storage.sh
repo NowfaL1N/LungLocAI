@@ -36,6 +36,6 @@ unset TOKEN PW PW2
 say "Restarting the app with storage enabled"
 az containerapp update -n "$APP" -g "$RG" \
   --set-env-vars "DATA_REPO=$DATA_REPO" "DATA_REPO_TOKEN=secretref:data-token" "ADMIN_PASSWORD=secretref:admin-pw" \
-  --revision-suffix "s$(date +%m%d%H%M)" -o none --only-show-errors || exit 1
+  -o none --only-show-errors || exit 1
 URL="https://$(az containerapp show -n "$APP" -g "$RG" --query properties.configuration.ingress.fqdn -o tsv)"
 say "Done. Admin page: $URL/admin  (log in, then press 'Test storage')"

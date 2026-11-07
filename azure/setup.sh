@@ -55,7 +55,7 @@ fi
 
 if az containerapp show -n "$APP" -g "$RG" >/dev/null 2>&1; then
   say "App exists - updating it to $IMAGE"
-  az containerapp update -n "$APP" -g "$RG" --image "$IMAGE" --revision-suffix "r$(date +%m%d%H%M)" -o none --only-show-errors || exit 1
+  az containerapp update -n "$APP" -g "$RG" --image "$IMAGE" -o none --only-show-errors || exit 1
 else
   say "Creating the app from $IMAGE"
   az containerapp create -n "$APP" -g "$RG" --environment "$ENV_NAME" \
