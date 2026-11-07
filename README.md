@@ -110,7 +110,7 @@ Results on the 7 synthetic test scans in [Releases](../../releases) (30 nodules,
 These numbers show the pipeline works. They are **not** clinical accuracy: run the same script on held-out
 LUNA16 scans for that.
 
-Make your own synthetic test scans: `python tools/make_synthetic_ct.py --out data/synthetic --n 5 [--full-body]`.
+Rebuild the exact test set locally with `python tools/make_test_set.py --out test_scans`, or make new synthetic scans with `python tools/make_synthetic_ct.py --out data/synthetic --n 5 [--full-body]`.
 
 ## API
 
