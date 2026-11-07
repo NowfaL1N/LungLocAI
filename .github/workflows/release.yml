@@ -5,6 +5,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      recreate:
+        description: "Delete and recreate the release + tag on the current main"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -27,6 +32,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.0' }}
+          RECREATE: ${{ inputs.recreate }}
         run: |
+          if [ "$RECREATE" = "true" ]; then
+            gh release delete "$TAG" --cleanup-tag -y || true
+            git push origin ":refs/tags/$TAG" 2>/dev/null || true
+          fi
           gh release view "$TAG" >/dev/null 2>&1 && gh release upload "$TAG" LungLocAI_test_scans.zip --clobber \
-            || gh release create "$TAG" LungLocAI_test_scans.zip --title "LungLocAI $TAG" --notes-file docs/release_notes.md
+            || gh release create "$TAG" LungLocAI_test_scans.zip --target "$GITHUB_SHA" --title "LungLocAI $TAG" --notes-file docs/release_notes.md
