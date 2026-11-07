@@ -4,7 +4,7 @@
 each nodule becomes a row of measurements → XGBoost estimates whether it is a lung-cancer nodule →
 a report a doctor can act on.**
 
-🌐 **Live demo:** _LIVE_DEMO_URL_ &nbsp;·&nbsp; 🧪 **Test scans:** [Releases](../../releases) &nbsp;·&nbsp; 📓 **Train on LUNA16:** [`notebooks/`](notebooks)
+🌐 **Live demo: https://lunglocai.gentlerock-8c108a22.eastasia.azurecontainerapps.io** (first load after idle ~30–60 s) &nbsp;·&nbsp; 🧪 **Test scans:** [Releases](../../releases) &nbsp;·&nbsp; 📓 **Train on LUNA16:** [`notebooks/`](notebooks)
 
 > ⚠️ Research prototype for decision support. **Not a medical device.** A radiologist must confirm every finding.
 > Do not upload scans that contain patient names or IDs.
@@ -61,7 +61,8 @@ Every push to `main` builds the Docker image with GitHub Actions and publishes i
    ```bash
    curl -sL https://raw.githubusercontent.com/NowfaL1N/LungLocAI/main/azure/setup.sh | bash
    ```
-   It creates the app and prints the public link, e.g. `https://lunglocai.<random>.centralindia.azurecontainerapps.io`.
+   It creates the app and prints the public link, e.g. `https://lunglocai.<random>.eastasia.azurecontainerapps.io`.
+   (Azure for Students may block Indian regions; the script then tries the next allowed region automatically.)
 4. *(Optional, enables auto-update on every push.)* If the script printed a JSON block, save it as a GitHub
    secret named `AZURE_CREDENTIALS` (Settings → Secrets and variables → Actions → New repository secret).
    Otherwise, update the live site after a push with
