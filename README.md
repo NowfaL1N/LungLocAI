@@ -34,8 +34,8 @@ and LIDC-IDRI (Armato et al., *Medical Physics* 38(2), 2011, doi:10.1118/1.35282
 | 1. 3-D volume | CT resampled to 1 mm isotropic voxels in Hounsfield units | `app/pipeline/ct_io.py` |
 | 2. Lung extraction | Finds the body and internal air, picks the two lungs (rejects bowel gas and outside air), crops them out of a full-body scan, labels left/right | `app/pipeline/lungs.py` |
 | 3. Nodule detection | Multi-scale 3-D ball opening (1, 2, 3, 5 mm) separates round nodules from vessels; shape and pleura filters | `app/pipeline/nodules.py` |
-| 4. Feature table | 33 numbers per nodule: size, 3-D shape, density, margin, location → CSV | `app/pipeline/features.py` |
-| 5. XGBoost | `nodule_model` (real nodule vs. false positive) + `malignancy_model` (lung cancer vs. benign) | `app/pipeline/classifier.py` |
+| 4. Feature table | per candidate: the 539 LungLocAI-3D features (32 mm cube) + 33 size/shape/density/location measures → CSV | `app/pipeline/lla_features.py`, `features.py` |
+| 5. XGBoost | `nodule_model` = LungLocAI-3D model (real nodule vs. false positive, AUC 0.9725) + `malignancy_model` (lung cancer vs. benign) | `app/pipeline/classifier.py` |
 | 6. Report | AI cancer probability, Lung-RADS-v2022-style size category, follow-up suggestion, triage priority, 3-plane close-ups, slice viewer, 3-D view, **PDF** | `app/report.py` |
 
 <p align="center"><img src="docs/nodule.png" alt="Nodule card" width="900"></p>
@@ -117,29 +117,35 @@ Enable it (one time):
 
 Locally: `DATA_DIR=./research_data ADMIN_PASSWORD=... uvicorn app.main:app` uses a folder instead of GitHub.
 
-## Models: from demo to your LungLocAI dataset
+## Models
 
-The repo ships **DEMO models trained on synthetic phantoms**. The site and PDF say so in orange.
-Train real ones on LUNA16 with the **same pipeline** so training and website features match exactly:
+| Model | What it decides | Features | Trained on | Status |
+|---|---|---|---|---|
+| `nodule_model` | real nodule vs. false positive | the 539 LungLocAI-3D features | LungLocAI-3D: 888 LUNA16 scans, 54,837 candidates | **test AUC 0.9725** (LUNA16 subset 9) |
+| `malignancy_model` | lung cancer vs. benign | 33 shape/density/location measures | synthetic phantoms | **demo**: LungLocAI-3D / LUNA16 have no malignancy labels |
 
+**Nodule model.** This is the published `xgboost_baseline.json`. For every candidate the website computes exactly the
+dataset's features (`app/pipeline/lla_features.py`, copied from the dataset notebook): a 32 mm cube resampled at 1 mm from
+the original scan, sphere statistics at 3/6/10 mm, centre-vs-shell contrast, gradients and the 8×8×8 downsampled patch.
+Predictions use the model's best iteration (599), which reproduces the published test results exactly.
+The website uses threshold **0.1** (sensitivity 0.80, specificity 0.980 on the test set) instead of 0.5 (sensitivity 0.58,
+specificity 0.997), because a screening tool should miss fewer nodules. Change it with the environment variable
+`NODULE_MODEL_THRESHOLD`.
+
+**Cancer model.** It becomes real once you label stored cases as malignant/benign on `/admin` and press **Retrain**.
+That trains from scratch on your confirmed labels; it never fine-tunes the demo. Malignancy ratings from LIDC-IDRI are
+another source (`training/make_lidc_malignancy_csv.py`).
+
+**Retraining the nodule model.** Without a base table, Retrain *fine-tunes* the LungLocAI-3D model with your confirmed
+labels, so it keeps what it learned from 888 scans. To retrain on the dataset itself, make a compact table and upload it
+on `/admin`:
 ```bash
-python training/build_luna16_table.py --luna-dir /path/LUNA16 --annotations /path/LUNA16/annotations.csv \
-       --out data/lunglocai_table.csv --workers 2
-python training/train_xgboost.py --table data/lunglocai_table.csv --task nodule
+python tools/make_base_table.py --metadata metadata.csv --features features.csv --out base_table.csv   # under 60 MB
 ```
-In Colab use [`notebooks/LungLocAI_train_on_LUNA16.ipynb`](notebooks/LungLocAI_train_on_LUNA16.ipynb) (resumable).
-Put the resulting `models/*_model.json` + `.meta.json` in `models/` and commit; the next image build carries them to the live site.
+In both cases a new model only goes live if it is at least as good as the current one on held-out scans.
 
-**LUNA16 has no cancer labels.** Its annotations mark nodule vs. non-nodule. For the lung-cancer model,
-take malignancy ratings from LIDC-IDRI:
-```bash
-pip install pylidc
-python training/make_lidc_malignancy_csv.py --luna-dir /path/LUNA16 --out data/lidc_malignancy.csv
-python training/build_luna16_table.py ... --malignancy data/lidc_malignancy.csv
-python training/train_xgboost.py --table data/lunglocai_table.csv --task malignancy
-```
-Validation is grouped by scan (GroupKFold on `seriesuid`). AUC, sensitivity, specificity, the threshold
-and the top features are stored in `.meta.json` and shown on the site and in the PDF.
+Rebuilding everything from raw LUNA16 is also possible (`training/build_luna16_table.py`,
+`training/train_xgboost.py`, `notebooks/`).
 
 ## Measuring accuracy
 
@@ -153,14 +159,17 @@ python tools/evaluate.py --scans /path/LUNA16/subset9 --annotations /path/LUNA16
 
 Results on the 7 synthetic test scans in [Releases](../../releases) (30 nodules, never used in training):
 
-| Detection | | Lung-cancer classification | |
-|---|---|---|---|
-| Nodules found | 29 / 30 (96.7 %) | Cancers flagged | 10 / 11 (90.9 %) |
-| False positives / scan | 0.71 | Benign wrongly flagged | 0 / 19 |
-| Size error | 0.8 mm | AUC | 0.99 |
+| | Result |
+|---|---|
+| Nodules found | 29 / 30 (96.7 %) |
+| Candidate-level AUC of the LungLocAI-3D model | 0.992 |
+| False positives / scan at threshold 0.1 | 8.1 (1.1 at 0.5) |
+| Size error | 0.8 mm |
 
-These numbers show the pipeline works. They are **not** clinical accuracy: run the same script on held-out
-LUNA16 scans for that.
+The synthetic scans have unrealistically uniform vessels that a model trained on real CT has never seen, so the
+false-positive count here is pessimistic. On real LUNA16 test data the published figure is about 1.2 false positives
+per scan at 0.1. The synthetic set checks that the pipeline works; real accuracy comes from LUNA16 (`tools/evaluate.py`
+on subset 9).
 
 Rebuild the exact test set locally with `python tools/make_test_set.py --out test_scans`, or make new synthetic scans with `python tools/make_synthetic_ct.py --out data/synthetic --n 5 [--full-body]`.
 

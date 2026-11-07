@@ -13,6 +13,7 @@ the decision threshold and the validation metrics so the report can show them.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -29,18 +30,26 @@ class Model:
         self.booster = xgb.Booster()
         self.booster.load_model(str(model_dir / f"{name}.json"))
         self.features = self.meta["features"]
-        self.threshold = float(self.meta.get("threshold", 0.5))
+        if self.booster.feature_names is None and self.booster.num_features() == len(self.features):
+            self.booster.feature_names = list(self.features)
+        best = self.booster.attr("best_iteration")        # sklearn early-stopping models predict with best_iteration
+        self.iter_range = (0, int(best) + 1) if best is not None else (0, 0)
+        env = os.environ.get(f"{name.upper()}_THRESHOLD")    # e.g. NODULE_MODEL_THRESHOLD=0.5
+        self.threshold = float(env if env else self.meta.get("threshold", 0.5))
 
     def predict(self, df: pd.DataFrame):
         missing = [f for f in self.features if f not in df.columns]
         X = df.reindex(columns=self.features).astype(float)
-        p = self.booster.predict(xgb.DMatrix(X.values, feature_names=self.features, missing=np.nan))
+        p = self.booster.predict(xgb.DMatrix(X.values, feature_names=self.features, missing=np.nan),
+                                 iteration_range=self.iter_range)
         return p, missing
 
     def info(self):
         m = self.meta
-        return {k: m.get(k) for k in ("task", "label", "threshold", "trained_on", "n_rows", "n_scans",
-                                       "metrics", "demo", "created", "top_features")}
+        d = {k: m.get(k) for k in ("task", "label", "trained_on", "n_rows", "n_scans", "metrics", "demo", "created",
+                                   "top_features", "source", "operating_points", "feature_set")}
+        d["threshold"] = self.threshold
+        return d
 
 
 def load_models(*dirs: Path):

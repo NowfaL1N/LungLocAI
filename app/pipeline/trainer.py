@@ -39,9 +39,11 @@ def feature_list(df: pd.DataFrame) -> list[str]:
     return [f for f in FEATURE_COLUMNS if f in df.columns]
 
 
-def cv_train(df: pd.DataFrame, label: str, groups=None, folds: int = 5, rounds: int = 600, log=print):
-    """Cross-validated XGBoost. Returns (final_booster, info) where info has features, threshold, metrics..."""
-    feats = feature_list(df)
+def cv_train(df: pd.DataFrame, label: str, groups=None, folds: int = 5, rounds: int = 600, log=print,
+             feats: list[str] | None = None, init_model: xgb.Booster | None = None, init_iters: int = 0):
+    """Cross-validated XGBoost. Returns (final_booster, info) where info has features, threshold, metrics...
+    init_model: continue boosting from an existing model (fine-tuning) instead of starting from scratch."""
+    feats = feats or feature_list(df)
     X = df[feats].astype(float).values
     y = df[label].astype(int).values
     n_groups = len(set(groups)) if groups is not None else 0
@@ -59,8 +61,9 @@ def cv_train(df: pd.DataFrame, label: str, groups=None, folds: int = 5, rounds: 
     for i, (tr, te) in enumerate(splits):
         dtr = xgb.DMatrix(X[tr], label=y[tr], feature_names=feats)
         dte = xgb.DMatrix(X[te], label=y[te], feature_names=feats)
-        bst = xgb.train(params, dtr, rounds, evals=[(dte, "val")], early_stopping_rounds=50, verbose_eval=False)
-        best.append(bst.best_iteration + 1)
+        bst = xgb.train(params, dtr, rounds, evals=[(dte, "val")], early_stopping_rounds=50, verbose_eval=False,
+                        xgb_model=_warm(init_model, init_iters))
+        best.append(bst.best_iteration + 1 - init_iters)
         oof[te] = bst.predict(dte, iteration_range=(0, bst.best_iteration + 1))
         log(f"  fold {i + 1}: AUC={safe_auc(y[te], oof[te]):.3f}")
     ok = ~np.isnan(oof)
@@ -68,14 +71,23 @@ def cv_train(df: pd.DataFrame, label: str, groups=None, folds: int = 5, rounds: 
     threshold = float(np.clip(thr[int(np.argmax(tpr - fpr))], 0.05, 0.95))
     metrics = metrics_at(y[ok], oof[ok], threshold)
     metrics["cv"] = cv_kind
-    n_final = max(int(np.median(best)), 40)
-    final = xgb.train(params, xgb.DMatrix(X, label=y, feature_names=feats), n_final)
+    n_final = max(int(np.median(best)), 40 if init_model is None else 10)
+    final = xgb.train(params, xgb.DMatrix(X, label=y, feature_names=feats), n_final,
+                      xgb_model=_warm(init_model, init_iters))
     gain = final.get_score(importance_type="gain")
     top = sorted(gain.items(), key=lambda kv: kv[1], reverse=True)[:10]
-    info = {"features": feats, "threshold": round(threshold, 4), "rounds": n_final, "params": params,
+    info = {"features": feats, "threshold": round(threshold, 4), "rounds": n_final + init_iters, "params": params,
+            "fine_tuned": init_model is not None,
             "metrics": metrics, "n_rows": int(len(df)), "n_positive": int(y.sum()), "n_scans": int(n_groups),
             "top_features": [[k_, round(v, 2)] for k_, v in top]}
     return final, info
+
+
+def _warm(model, iters):
+    """A copy of the model truncated to its best iteration, to continue training from."""
+    if model is None:
+        return None
+    return model[:iters] if iters else model.copy()
 
 
 def predict(booster: xgb.Booster, feats: list[str], df: pd.DataFrame) -> np.ndarray:

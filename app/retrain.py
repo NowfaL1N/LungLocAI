@@ -33,6 +33,8 @@ def collect(store) -> tuple[pd.DataFrame, dict]:
     raw = store.read("training/base_table.csv")
     if raw:
         base = pd.read_csv(io.BytesIO(raw))
+        if "is_nodule" not in base.columns and "label" in base.columns:      # LungLocAI-3D metadata naming
+            base["is_nodule"] = base["label"]
         base["source"] = "base"
         if "seriesuid" not in base.columns:
             base["seriesuid"] = "base"
@@ -48,11 +50,10 @@ def collect(store) -> tuple[pd.DataFrame, dict]:
             t = pd.read_csv(io.BytesIO(raw))
             t["candidate_id"] = t["candidate_id"].astype(int)
             g = g.assign(candidate_id=g.candidate_id.astype(int))
-            t = t.merge(g[["candidate_id", "label"]], on="candidate_id", how="inner")
-            t["is_nodule"] = (t.label != "not_nodule").astype(int)
-            t["malignant"] = t.label.map({"malignant": 1, "benign": 0})
-            t["seriesuid"] = "upload:" + case_id
-            t["source"] = "upload"
+            t = t.merge(g[["candidate_id", "label"]], on="candidate_id", how="inner").copy()
+            t = t.assign(is_nodule=(t.label != "not_nodule").astype(int),
+                         malignant=t.label.map({"malignant": 1, "benign": 0}),
+                         seriesuid="upload:" + case_id, source="upload")
             parts.append(t)
             info["upload_cases"] += 1
             info["upload_rows"] += len(t)
@@ -95,9 +96,15 @@ def retrain(store, current_models: dict, out_dir: Path, log=print) -> dict:
         ytest = test[label].astype(int)
         if len(test) == 0 or ytest.nunique() < 2 or train[label].astype(int).nunique() < 2:
             train, test = d, d.iloc[0:0]
-        log(f"[{task}] candidate model: {len(train)} train rows, {len(test)} held-out rows")
-        cand, cinfo = cv_train(train, label, groups=train.seriesuid.values, log=log)
         cur = current_models.get(f"{task}_model")
+        feats = cur.features if cur is not None and all(f in d.columns for f in cur.features) else None
+        warm = dict(init_model=cur.booster, init_iters=cur.iter_range[1]) \
+            if (cur is not None and feats and info["base_rows"] == 0 and not cur.meta.get("demo")) else {}
+        r["feature_set"] = "LungLocAI-3D (539)" if feats and len(feats) > 100 else "website (33)"
+        r["method"] = "fine-tuned from current model" if warm else "trained from scratch"
+        log(f"[{task}] candidate model ({r['method']}, {r['feature_set']} features): "
+            f"{len(train)} train rows, {len(test)} held-out rows")
+        cand, cinfo = cv_train(train, label, groups=train.seriesuid.values, log=log, feats=feats, **warm)
         if len(test):
             cand_auc = safe_auc(test[label].astype(int), predict(cand, cinfo["features"], test))
             cur_auc = safe_auc(test[label].astype(int), cur.predict(test)[0]) if cur else float("nan")
@@ -112,8 +119,9 @@ def retrain(store, current_models: dict, out_dir: Path, log=print) -> dict:
             log(r["status"])
             continue
         log(f"[{task}] accepted - training final model on all {len(d)} rows")
-        final, finfo = cv_train(d, label, groups=d.seriesuid.values, log=log)
+        final, finfo = cv_train(d, label, groups=d.seriesuid.values, log=log, feats=feats, **warm)
         meta = dict(finfo, task=task, label=label, demo=False, created=time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    feature_set=r["feature_set"], method=r["method"],
                     trained_on=(f"{'base table + ' if info['base_rows'] else ''}"
                                 f"{info['upload_cases']} confirmed uploaded scans"),
                     holdout={"candidate_auc": r["candidate_auc"], "previous_auc": r["current_auc"], "basis": basis})

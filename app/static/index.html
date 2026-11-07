@@ -48,8 +48,8 @@
       <li><i>1</i><div><b>3-D volume</b><span>resampled to 1 mm voxels</span></div></li>
       <li><i>2</i><div><b>Lung extraction</b><span>auto-crops lungs from full-body scans</span></div></li>
       <li><i>3</i><div><b>Nodule detection</b><span>multi-scale 3-D morphology</span></div></li>
-      <li><i>4</i><div><b>Feature table</b><span>33 measurements per nodule</span></div></li>
-      <li><i>5</i><div><b>XGBoost</b><span>nodule &amp; cancer probability</span></div></li>
+      <li><i>4</i><div><b>Feature table</b><span>539 LungLocAI-3D features + 33 shape measures</span></div></li>
+      <li><i>5</i><div><b>XGBoost</b><span>LungLocAI-3D model (AUC 0.97) + cancer probability</span></div></li>
       <li><i>6</i><div><b>Doctor report</b><span>PDF + Lung-RADS-style triage</span></div></li>
     </ol>
   </section>
@@ -82,7 +82,7 @@
       </div>
     </div>
 
-    <div id="demoWarn" class="notice warn hidden">Demo model: trained on synthetic phantoms, not patient data. Train on LungLocAI / LUNA16 to get real predictions.</div>
+    <div id="demoWarn" class="notice warn hidden"></div>
     <div id="warnings"></div>
 
     <div class="stats" id="stats"></div>

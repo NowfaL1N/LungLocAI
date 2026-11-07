@@ -169,9 +169,11 @@ def build_pdf(path: Path, result: dict, closeups: dict, overview: bytes | None):
              Spacer(1, 4),
              Paragraph("<b>Decision-support output from a research prototype.</b> Findings are computer-generated and "
                        "must be verified by a qualified radiologist on the original images before any clinical use.", WARN)]
-    if result["models"].get("demo"):
-        story.append(Paragraph("<b>DEMO MODEL:</b> the XGBoost model used here was trained on synthetic phantoms, "
-                               "not on patient data. Probabilities are illustrative only.", WARN))
+    demo_models = [k for k, v in result["models"].get("details", {}).items() if v.get("demo")]
+    if demo_models:
+        what = " and ".join("cancer probability" if "malign" in k else "nodule detection" for k in demo_models)
+        story.append(Paragraph(f"<b>DEMO MODEL:</b> the {what} model was trained on synthetic phantoms, not on patient "
+                               "data, so those probabilities are illustrative only.", WARN))
 
     story.append(Paragraph("1. Scan", H2))
     story.append(tbl([
@@ -248,8 +250,9 @@ def build_pdf(path: Path, result: dict, closeups: dict, overview: bytes | None):
     story.append(Paragraph(
         "CT converted to a 1 mm isotropic 3-D volume &rarr; lungs segmented (and automatically extracted from "
         "full-body scans) &rarr; nodule candidates found with multi-scale 3-D morphology &rarr; each candidate "
-        f"converted to a row of {len(result['feature_columns'])} quantitative features (size, 3-D shape, Hounsfield "
-        "density, margin, location) &rarr; XGBoost classification.", B))
+        "described by the 539 LungLocAI-3D features (32 mm cube at 1 mm: sphere statistics, contrast, gradient, "
+        f"8&times;8&times;8 patch) plus {len(result['feature_columns'])} shape/density/location measurements &rarr; XGBoost "
+        "classification (nodule model: LungLocAI-3D, IEEE DataPort DOI 10.21227/0x9w-1y93).", B))
     for name, info in m.get("details", {}).items():
         met = info.get("metrics") or {}
         story.append(Paragraph(

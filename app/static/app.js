@@ -7,10 +7,12 @@ fetch("api/model").then(r => r.json()).then(m => {
   const b = $("#modelBadge");
   const det = Object.values(m.details);
   if (!det.length) { b.textContent = "No XGBoost model loaded"; b.classList.add("demo"); return; }
-  const demo = det.some(d => d.demo);
-  const mal = m.details.malignancy_model;
-  b.textContent = (demo ? "DEMO model · " : "XGBoost · ") + (mal ? `cancer AUC ${mal.metrics?.auc != null ? mal.metrics.auc.toFixed(2) : "–"}` : "nodule detection only");
-  if (demo) b.classList.add("demo");
+  const nod = m.details.nodule_model, mal = m.details.malignancy_model;
+  const parts = [];
+  if (nod) parts.push(`nodule AUC ${nod.metrics?.auc?.toFixed(2) ?? "–"}${nod.demo ? " (demo)" : ""}`);
+  if (mal) parts.push(`cancer ${mal.demo ? "model: demo" : "AUC " + (mal.metrics?.auc?.toFixed(2) ?? "–")}`);
+  b.textContent = "XGBoost · " + parts.join(" · ");
+  if (det.some(d => d.demo)) b.classList.add("demo");
 });
 
 fetch("api/config").then(r => r.json()).then(c => {
@@ -79,7 +81,11 @@ function showResult(r) {
   $("#resSub").textContent = `${r.scan.source_file} · ${r.scan.format} · ${L.full_body ? "full-body scan, lungs auto-extracted" : "chest CT"} · analysed in ${r.seconds}s`;
   $("#pdfBtn").href = `api/jobs/${r.job_id}/report.pdf`;
   $("#csvBtn").href = `api/jobs/${r.job_id}/table.csv`;
-  $("#demoWarn").classList.toggle("hidden", !r.models.demo);
+  const dm = Object.entries(r.models.details || {}).filter(([k, v]) => v.demo).map(([k]) => k);
+  $("#demoWarn").classList.toggle("hidden", !dm.length);
+  const nd = (r.models.details || {}).nodule_model;
+  $("#demoWarn").innerHTML = (nd && !nd.demo ? `Nodule detection uses the <b>LungLocAI-3D</b> XGBoost model (888 LUNA16 scans, test AUC ${nd.metrics.auc}). ` : "") +
+    (dm.length ? `The <b>${dm.map(k => k.includes("malign") ? "cancer-probability" : "nodule-detection").join(" and ")}</b> model is still a <b>demo</b> trained on synthetic data, so treat ${dm.length > 1 ? "those numbers" : "that number"} as illustrative.` : "");
   $("#warnings").innerHTML = r.warnings.map(w => `<div class="notice info">${w}</div>`).join("") +
     (r.consent ? `<div class="notice info">Thank you: the anonymised findings of this scan were shared privately with the LungLocAI researchers.</div>` : "");
 

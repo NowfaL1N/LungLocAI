@@ -8,6 +8,7 @@ from __future__ import annotations
 import pandas as pd
 
 from .features import FEATURE_COLUMNS, INFO_COLUMNS, compute_features, lung_bbox_info
+from .lla_features import LLA_FEATURE_COLUMNS, lla_features
 from .lungs import extract_lungs
 from .nodules import detect_candidates
 
@@ -23,7 +24,9 @@ def scan_to_table(img, progress=lambda step, msg="": None):
     for i, c in enumerate(cands, start=1):
         r = compute_features(c, L["array"], L["lung"], L["side_map"], L["image"], bb)
         r["candidate_id"] = i
+        # LungLocAI-3D features: 32 mm cube resampled from the ORIGINAL scan, exactly as in the dataset
+        r.update(lla_features(img, (r["world_x"], r["world_y"], r["world_z"])))
         rows.append(r)
-    df = pd.DataFrame(rows, columns=INFO_COLUMNS + FEATURE_COLUMNS) if rows else \
-        pd.DataFrame(columns=INFO_COLUMNS + FEATURE_COLUMNS)
+    cols = INFO_COLUMNS + FEATURE_COLUMNS + LLA_FEATURE_COLUMNS
+    df = pd.DataFrame(rows, columns=cols) if rows else pd.DataFrame(columns=cols)
     return L, cands, df, bb

@@ -530,8 +530,9 @@ async def admin_base_table(request: Request, file: UploadFile = File(...)):
         t = pd.read_csv(io.BytesIO(raw), nrows=200)
     except Exception:
         raise HTTPException(400, "Not a readable CSV file")
-    feats = [c for c in FEATURE_COLUMNS if c in t.columns]
-    labels = [c for c in ("is_nodule", "malignant") if c in t.columns]
+    from .pipeline.lla_features import LLA_FEATURE_COLUMNS
+    feats = [c for c in FEATURE_COLUMNS + LLA_FEATURE_COLUMNS if c in t.columns]
+    labels = [c for c in ("is_nodule", "malignant", "label") if c in t.columns]
     if len(feats) < 5 or not labels:
         raise HTTPException(400, f"The CSV needs the website's feature columns ({len(feats)} of {len(FEATURE_COLUMNS)} found) "
                                  "and an 'is_nodule' and/or 'malignant' label column. Build it with training/build_luna16_table.py.")
