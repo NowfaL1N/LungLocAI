@@ -45,6 +45,17 @@ jobs:
             org.opencontainers.image.licenses=MIT
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Check the image is public (Azure pulls it without a password)
+        run: |
+          REPO=${IMAGE#ghcr.io/}
+          TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:${REPO}:pull" | python3 -c "import sys,json;print(json.load(sys.stdin).get('token',''))")
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json" \
+            "https://ghcr.io/v2/${REPO}/manifests/latest")
+          if [ "$CODE" = "200" ]; then echo "Image is public"; else
+            echo "::warning title=Container image is private::Make it public once: https://github.com/users/${{ github.repository_owner }}/packages/container/package/lunglocai/settings -> Danger Zone -> Change visibility -> Public"
+          fi
+          echo "IMAGE_PUBLIC_HTTP=$CODE"
 
   deploy:
     needs: image
